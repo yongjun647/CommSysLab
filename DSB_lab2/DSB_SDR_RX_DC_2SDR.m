@@ -9,6 +9,7 @@ Capture_Time = 15;      % 錄製 15 秒
 fs_audio_out = 48e3;    % 最終播放的音訊取樣率 (48 kHz)
 fs_proc = 192e3;        % DSP 處理頻率
 
+
 %% 2. 啟動 SDR 接收硬體
 fprintf('=== SDR MP3 極簡接收端 ===\n');
 fprintf('正在擷取 %d 秒的空中訊號...\n', Capture_Time);
