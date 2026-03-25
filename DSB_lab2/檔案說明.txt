@@ -1,0 +1,22 @@
+1.助教ppt提供的程式
+  DSB_SDR_RX.m
+  DSB_SDR_TX.m
+2.加分題第一題的程式
+  2.1.DC代表加入直流pilot
+    DSB_SDR_RX_DC.m
+    DSB_SDR_TX_DC.m
+  2.2.CostasLoop代表使用CostasLoop實作
+    DSB_SDR_RX_LoopBack_CostasLoop.m
+    DSB_SDR_TX.m
+  2.3.使用訊號平方計算相位差
+    Bonus_RX
+    DSB_SDR_TX.m
+3.加分題第二題的程式
+  DSB_SDR_RX_DC_2SDR.m
+  DSB_SDR_TX_DC.m
+4.每次實驗產生兩張圖
+  4.1wave是解調後音樂播放出來的波形圖
+  4.2Rotation是解調後IQ圖
+5.Wireless的圖，都是加分題第二題的圖
+  5.1.Wireless、Wireless2對應DC pilot實作，代表天線互相平行、垂直擺放（效果有差）
+  5.2Wireless_CostasLoop對應CostasLoop實作
