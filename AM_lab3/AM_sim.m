@@ -1,0 +1,106 @@
+%% AM Modulation & Demodulation Pure Simulation
+clc; clear; close all;
+
+%% 1. 參數設定
+SR = 192e3;              % 取樣率 (192 kHz)
+fc = 40e3;              % 載波頻率 (40 kHz)
+Mod_Index = 0.8;        % 調變指數
+Sim_Duration = 5;       % 模擬時長 (縮短一點方便觀察)
+mp3_filename = 'music.mp3';
+
+
+%% 2檢查檔案是否存在
+
+if ~isfile(mp3_filename)
+    error('錯誤：找不到檔案 %s', mp3_filename);
+end
+
+% 讀取音訊檔案
+[y, fs_audio] = audioread(mp3_filename);
+
+% 若原始檔案為單聲道，複製成雙聲道以統一後續處理格式
+if size(y, 2) == 1
+    y = [y, y];
+end
+% 根據 Loop_Duration 計算取樣點數並裁切
+%Loop_Duration = 20;
+samples_Duration = floor(Sim_Duration * fs_audio);
+y = y(1:min(end, samples_Duration), :);
+
+
+
+%% 3. 發射端處理 (Transmitter)
+% A. 音訊重取樣與正規化
+y_resamp = resample(y, SR, fs_audio);
+y_norm = y_resamp / max(abs(y_resamp));
+
+% B. 產生基頻包絡
+% 此時 iq_base 是一條隨音訊起伏但永遠大於 0 的曲線
+iq_base = (1 + Mod_Index * y_norm);
+
+% C. 乘上載波產生震盪 (Passband Signal)
+t = (0:length(iq_base)-1)' / SR;
+A_c = 1;                % 假設 A_c = 1
+tx_signal = A_c * iq_base .* cos(2 * pi * fc * t);
+
+%% 4. 接收端 (SDR IQ Demodulator)
+% --- Step A: 數位混頻 (Digital Mixing) ---
+% 模擬 SDR 內部
+mix_i = tx_signal .* cos(2 * pi * fc * t);       % I 路：乘上 Cos
+mix_q = tx_signal .* (-sin(2 * pi * fc * t));    % Q 路：乘上 -Sin
+
+% --- Step B: 低通濾波 (LPF) ---
+% 濾除 2*fc 的高頻成分，留下基頻 I/Q
+% 這裡截止頻率設為 fc 的 0.5 倍，確保濾掉高頻雜訊
+[b, a] = butter(5, (fc*0.5)/(SR/2));
+I_base = filter(b, a, mix_i);
+Q_base = filter(b, a, mix_q);
+
+% --- Step C: (Envelope Extraction) ---
+% 乘 2 是因為混頻過程中能量會折半 (cos^2 = 1/2 + 1/2*cos(2w))
+iq_complex = I_base + 1i * Q_base;
+rx_env_iq = 2 * abs(iq_complex);
+
+% --- Step D: 直流濾除 ---
+% 減去平均值，找回原始訊息 $m(t)$
+rx_audio = rx_env_iq - mean(rx_env_iq);
+rx_final = rx_audio / max(abs(rx_audio));
+
+%% 5. 音訊輸出
+fprintf('正在播放解調後的音訊...\n');
+soundsc(rx_final, SR);
+
+%% 6. 繪圖與分析
+figure('Color', 'w', 'Position', [100, 100, 900, 700]);
+
+subplot(3,1,1);
+plot(t*1000, I_base, 'g', 'DisplayName', 'I (In-phase)');
+hold on;
+plot(t*1000, Q_base, 'm', 'DisplayName', 'Q (Quadrature)');
+title('SDR 內部的正交分量 (I/Q)');
+xlabel('時間 (ms)'); ylabel('振幅');
+legend; grid on; xlim([10 15]);
+
+% --- 時域波形：觀察震盪與 Envelope ---
+subplot(3,1,2);
+plot(t*10, tx_signal, 'Color', [0.7 0.7 0.7], 'DisplayName', 'Carrier Oscillation');
+hold on;
+plot(t*10, iq_base, 'r', 'LineWidth', 2, 'DisplayName', 'iq\_base (Envelope)');
+title('AM 時域模擬');
+xlabel('時間 (ms)'); ylabel('振幅');
+legend; grid on;
+xlim([1 50]);
+
+% --- 頻域分析 ---
+subplot(3,1,3);
+L = length(tx_signal);
+f = SR*(0:(L/2))/L;
+Y = fft(tx_signal);
+P2 = abs(Y/L); 
+P1 = P2(1:L/2+1);
+P1(2:end-1) = 2*P1(2:end-1);
+plot(f/1000, 10*log10(P1 + 1e-12), 'Color', [0 0.447 0.741]);
+title('AM 頻域模擬');
+xlabel('頻率 (kHz)'); ylabel('功率 (dB)');
+grid on; xlim([0 80]); % 顯示到 80kHz
+
