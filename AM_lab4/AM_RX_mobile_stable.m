@@ -111,7 +111,9 @@ for k = 1:num_frames
         step_db = min(max_up_db, 20 * log10((target_mean + 1e-6) / (mean_abs_ewma + 1e-6)));
     end
 
-    Ga = Ga + step_db;
+    % 注意: 此 SDR 的 Ref Level 越小(越負)通常等效於越高接收增益。
+    % 因此 AGC 更新方向要用減號，才能在飽和時把 Ga 往 0 dB 拉回。
+    Ga = Ga - step_db;
     Ga = max(Ga_min, min(Ga_max, Ga));
     set_RX_Ref_Level_ELSDR([0 Ga]);
 
