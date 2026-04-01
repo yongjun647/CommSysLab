@@ -4,7 +4,7 @@ clc; clear; close all;
 %% 1. 參數設定
 SR = 192e3;              % 取樣率 (192 kHz)
 fc = 40e3;              % 載波頻率 (40 kHz)
-Mod_Index = 10;        % 調變指數
+Mod_Index = 20;        % 調變指數
 Sim_Duration = 10;       % 模擬時長 (縮短一點方便觀察)
 mp3_filename = 'music.mp3';
 
@@ -71,9 +71,7 @@ rx_final = rx_audio / max(abs(rx_audio));
 fprintf('正在播放解調後的音訊...\n');
 soundsc(rx_final, SR);
 
-
 %% 6. 繪圖與分析
-
 figure('Color', 'w', 'Position', [100, 100, 900, 700]);
 
 subplot(3,1,1);
@@ -115,21 +113,3 @@ freqz(b, a);
 subplot(2,1,1);
 zplane(b, a);
 %}
-
-%% 7. 比較解調前與解調後的音頻時域訊號
-figure('Color', 'w', 'Position', [150, 150, 900, 400]);
-
-% 為了圖表清晰，僅取單一聲道 (Channel 1) 進行比對
-plot(t, y_norm(:, 1), 'b', 'LineWidth', 1.5, 'DisplayName', '原始訊號 (發射端 y\_norm)');
-hold on;
-plot(t, rx_final(:, 1), 'r--', 'LineWidth', 1.5, 'DisplayName', '還原訊號 (接收端 rx\_final)');
-
-title('音訊時域訊號比較 (原始發射 vs 最終解調)');
-xlabel('時間 (秒)');
-ylabel('振幅 (正規化)');
-legend('Location', 'northeast');
-grid on;
-
-% 為了能清楚看到聲波起伏，這裡放大 0.05 秒的區間來觀察
-% (你可以自行修改 xlim 的範圍來觀察不同時間點的波形)
-xlim([5, 5.05]);
