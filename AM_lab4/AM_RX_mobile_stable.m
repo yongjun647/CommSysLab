@@ -21,11 +21,20 @@ Ga_max = 0;
 % AGC 參數（以防飽和優先）
 target_mean = 0.12;       % 目標平均振幅
 target_p95 = 0.35;        % 目標 95 百分位振幅
-agc_alpha = 0.2;          % 平滑係數 (避免增益跳動)
+agc_attack = 0.45;        % 訊號突然變大時快速跟隨
+agc_release = 0.08;       % 訊號變小時慢速跟隨
 agc_deadband = 0.02;      % 誤差小於此值不調整
 max_up_db = 2.5;          % 每段最多提高增益 (dB)
 max_down_db = 6.0;        % 每段最多降低增益 (dB)
 clip_guard = 0.70;        % 振幅超過此值視為接近飽和，優先降增益
+
+% 抗脈衝雜訊 (noise blanker)
+nb_diff_k = 8.0;          % diff 門檻倍數，越小越積極
+
+% 同步檢波混合參數
+sync_phase_alpha = 0.12;  % 載波相位追蹤速度
+sync_blend_min = 0.25;    % 同步檢波最小權重
+sync_blend_max = 0.85;    % 同步檢波最大權重
 
 % 音量平衡
 target_audio_rms = 0.2;
@@ -55,7 +64,9 @@ zi_audio_lp = zeros(max(length(a_audio_lp), length(b_audio_lp)) - 1, 1);
 
 % AGC 狀態
 mean_abs_ewma = target_mean;
+p95_ewma = target_p95;
 audio_gain = 1.0;
+phase_est = 0;
 
 % 拼接音訊緩衝
 audio_total = [];
@@ -88,13 +99,39 @@ for k = 1:num_frames
         end
     end
 
-    % A) 量測訊號強度並更新 AGC（先防飽和，再慢速補償）
-    abs_rk = abs(rk);
+    % A) 抗脈衝雜訊 + 量測訊號強度並更新 AGC
+    rk_col_raw = rk(:);
+    diff_abs = [0; abs(diff(rk_col_raw))];
+    diff_med = median(diff_abs) + 1e-9;
+    blank_thr = nb_diff_k * diff_med;
+    blank_idx = find(diff_abs > blank_thr);
+    rk_nb = rk_col_raw;
+    for ii = 1:length(blank_idx)
+        n = blank_idx(ii);
+        if n > 1
+            rk_nb(n) = rk_nb(n-1);
+        end
+    end
+
+    abs_rk = abs(rk_nb);
     rr_mean = mean(abs_rk);
     rr_p95 = prctile(abs_rk, 95);
     rr_p99 = prctile(abs_rk, 99);
 
-    mean_abs_ewma = (1 - agc_alpha) * mean_abs_ewma + agc_alpha * rr_mean;
+    if rr_mean > mean_abs_ewma
+        alpha_mean = agc_attack;
+    else
+        alpha_mean = agc_release;
+    end
+    mean_abs_ewma = (1 - alpha_mean) * mean_abs_ewma + alpha_mean * rr_mean;
+
+    if rr_p95 > p95_ewma
+        alpha_p95 = agc_attack;
+    else
+        alpha_p95 = agc_release;
+    end
+    p95_ewma = (1 - alpha_p95) * p95_ewma + alpha_p95 * rr_p95;
+
     p95_err = target_p95 - rr_p95;
     mean_err = target_mean - mean_abs_ewma;
 
@@ -105,7 +142,7 @@ for k = 1:num_frames
         step_db = 0;
     elseif p95_err < 0
         % 高振幅偏大：中等速度降增益
-        step_db = max(-max_down_db, 20 * log10((target_p95 + 1e-6) / (rr_p95 + 1e-6)));
+        step_db = max(-max_down_db, 20 * log10((target_p95 + 1e-6) / (p95_ewma + 1e-6)));
     else
         % 振幅偏小：慢速升增益，避免追噪聲
         step_db = min(max_up_db, 20 * log10((target_mean + 1e-6) / (mean_abs_ewma + 1e-6)));
@@ -119,16 +156,32 @@ for k = 1:num_frames
 
     % B) 前處理 + 降取樣與 envelope 解調
     % 移動時 DC 與 LO 漂移可能變大，先做 IQ 去直流可提升穩定度
-    rk_dc = rk - mean(rk);
+    rk_dc = rk_nb - mean(rk_nb);
     rk_col = rk_dc(:);
     [rk_filtered, zi_anti] = filter(b_anti, a_anti, rk_col, zi_anti);
     rx_baseband = downsample(rk_filtered, decimation_factor);
 
+    % 包絡檢波
     rx_env = abs(rx_baseband);
+
+    % 同步檢波: 追蹤殘留載波相位，再投影到同相軸
+    ph_meas = angle(mean(rx_baseband) + 1e-12);
+    ph_err = angle(exp(1j * (ph_meas - phase_est)));
+    phase_est = phase_est + sync_phase_alpha * ph_err;
+    rx_sync = real(rx_baseband * exp(-1j * phase_est));
+
     env_last = rx_env;
 
     % C) 音訊濾波
-    rx_audio_raw = rx_env - mean(rx_env);
+    env_audio = rx_env - mean(rx_env);
+    sync_audio = rx_sync - mean(rx_sync);
+
+    % 根據載波可見度自動混合同步檢波與包絡檢波
+    carrier_metric = abs(mean(rx_baseband)) / (mean(abs(rx_baseband)) + 1e-9);
+    w_sync = (carrier_metric - 0.08) / 0.45;
+    w_sync = max(sync_blend_min, min(sync_blend_max, w_sync));
+    rx_audio_raw = (1 - w_sync) * env_audio + w_sync * sync_audio;
+
     [rx_audio_hp, zi_audio_hp] = filter(b_audio_hp, a_audio_hp, rx_audio_raw, zi_audio_hp);
     [rx_audio_filtered, zi_audio_lp] = filter(b_audio_lp, a_audio_lp, rx_audio_hp, zi_audio_lp);
 
@@ -158,8 +211,8 @@ for k = 1:num_frames
         end
     end
 
-    fprintf('Frame %02d/%02d | mean=%.4f p95=%.4f p99=%.4f | Ga=%.2f dB\n', ...
-        k, num_frames, rr_mean, rr_p95, rr_p99, Ga);
+    fprintf('Frame %02d/%02d | mean=%.4f p95=%.4f p99=%.4f | Ga=%.2f dB | nb=%d | wSync=%.2f\n', ...
+        k, num_frames, rr_mean, rr_p95, rr_p99, Ga, length(blank_idx), w_sync);
 end
 
 %% 5. 輸出音訊
