@@ -9,8 +9,8 @@ clc; clear; close all;
 %% 1. 參數設定
 SR = 960e3;               % 軟體基頻取樣率
 Target_Freq_MHz = 433;    % 接收中心頻率
-Capture_Time = 5;         % 總接收長度 (與 AM_RX.m 相同)
-frame_time = 0.5;         % 分段長度 (移動情境下 0.4~0.8 通常較穩)
+Capture_Time = 15;         % 總接收長度 (與 AM_RX.m 相同)
+frame_time = 0.3;         % 分段長度 (弱訊號移動情境優先)
 fs_proc = 192e3;          % DSP 處理頻率
 fs_audio_out = 48e3;      % 最終播放取樣率
 
@@ -19,13 +19,13 @@ Ga_min = -50;
 Ga_max = 0;
 
 % AGC 參數（以防飽和優先）
-target_mean = 0.22;       % 目標平均振幅
-target_p95 = 0.55;        % 目標 95 百分位振幅
+target_mean = 0.12;       % 目標平均振幅
+target_p95 = 0.35;        % 目標 95 百分位振幅
 agc_alpha = 0.2;          % 平滑係數 (避免增益跳動)
 agc_deadband = 0.02;      % 誤差小於此值不調整
-max_up_db = 1.5;          % 每段最多提高增益 (dB)
-max_down_db = 4.0;        % 每段最多降低增益 (dB)
-clip_guard = 0.85;        % 振幅超過此值視為接近飽和，優先降增益
+max_up_db = 2.5;          % 每段最多提高增益 (dB)
+max_down_db = 6.0;        % 每段最多降低增益 (dB)
+clip_guard = 0.70;        % 振幅超過此值視為接近飽和，優先降增益
 
 % 音量平衡
 target_audio_rms = 0.2;
@@ -166,6 +166,12 @@ if ~isempty(audio_total)
     if peak > 0.98
         audio_total = audio_total * (0.98 / peak);
     end
+
+    % 輸出 WAV 供離線回放與分析
+    wav_path = fullfile(pwd, 'AM_RX_mobile_stable_out.wav');
+    audiowrite(wav_path, audio_total, fs_audio_out);
+    fprintf('已輸出 WAV: %s\n', wav_path);
+
     fprintf('接收完成，正在播放音訊...\n');
     soundsc(audio_total, fs_audio_out);
 else
