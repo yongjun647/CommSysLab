@@ -60,7 +60,7 @@ rx_rf_real = tx_rf_real; % 理想通道 (無雜訊)
 r_I_raw = rx_rf_real .* cos(2 * pi * f_LO * t);
 r_Q_raw = rx_rf_real .* (-sin(2 * pi * f_LO * t));
 
-% 通過LPF 濾除2*f_LO的高頻項 (截止頻率 100 kHz)
+% 通過LPF 濾除2*f_LO的高頻項 (截止頻率 200 kHz)
 [b_rf, a_rf] = butter(3, 200e3/(Fs/2), 'low');
 r_I_filtered = filtfilt(b_rf, a_rf, r_I_raw);
 r_Q_filtered = filtfilt(b_rf, a_rf, r_Q_raw);
